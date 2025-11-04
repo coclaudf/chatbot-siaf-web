@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -17,17 +17,28 @@
         .message { margin-bottom: 15px; display: flex; }
         .message.user { justify-content: flex-end; }
         .message.bot { justify-content: flex-start; }
-        /* ESTA ES LA REGLA QUE ARREGLA EL DESBORDAMIENTO */
         .message .content { padding: 10px 15px; border-radius: 18px; max-width: 85%; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
         .message.bot .content { background: #eee; color: #333; }
         .message.user .content { background: #007bff; color: white; }
         
-        /* Contenedor para botones (sugerencias Y categorías) */
+        /* Contenedor para botones */
         .botones-container { padding: 5px; background: #f9f9f9; border-radius: 10px; margin-top: 5px; }
-        .boton-opcion { background: #fff; border: 1px solid #007bff; color: #007bff; padding: 8px 12px; border-radius: 15px; cursor: pointer; margin: 5px 3px; display: inline-block; font-size: 13px; transition: background 0.2s; }
+        
+        /* Botones de Contenido (Categorías, Preguntas, Sugerencias) */
+        .boton-opcion { background: #fff; border: 1px solid #007bff; color: #007bff; padding: 8px 12px; border-radius: 15px; cursor: pointer; margin: 5px; display: block; /* Apilados */ font-size: 13px; transition: background 0.2s; text-align: center; }
         .boton-opcion:hover { background: #e6f2ff; }
-        .boton-ia { background: #6c757d; border-color: #6c757d; color: white; } /* Botón para escalar a IA */
-        .boton-ia:hover { background: #5a6268; }
+        
+        /* Botones de Acción (Navegación) */
+        .boton-accion { margin-top: 10px; border-width: 2px; font-weight: bold; }
+        .boton-accion.ia { background: #5a3ab2; border-color: #5a3ab2; color: white; } /* Realizar consulta IA */
+        .boton-accion.ia:hover { background: #4a2f92; }
+        .boton-accion.inicio { background: #28a745; border-color: #28a745; color: white; } /* Ir al inicio */
+        .boton-accion.inicio:hover { background: #218838; }
+        .boton-accion.atras { background: #ffc107; border-color: #ffc107; color: #333; } /* Volver atrás */
+        .boton-accion.atras:hover { background: #e0a800; }
+        .boton-accion.finalizar { background: #dc3545; border-color: #dc3545; color: white; } /* Finalizar */
+        .boton-accion.finalizar:hover { background: #c82333; }
+
 
         #spinner { text-align: center; padding: 10px; }
         .dot-flashing { position: relative; width: 6px; height: 6px; border-radius: 5px; background-color: #999; color: #999; animation: dotFlashing 1s infinite linear alternate; animation-delay: .5s; }
@@ -49,9 +60,12 @@
     </div>
 
     <script>
+        // --- CONSTANTES Y ESTADO GLOBAL ---
         const chatBox = document.getElementById('chat-box');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
+        // Flag para cumplir Req 2b: "Realizar consulta detallada"
+        window.forceIA = false; 
 
         // --- MANEJADORES DE EVENTOS PRINCIPALES ---
 
@@ -80,12 +94,12 @@
                 }
                 const data = await response.json();
                 
-                // Muestra el saludo
                 agregarMensaje('bot', data.saludo);
                 
-                // Muestra los botones de categoría
                 if (data.categorias && data.categorias.length > 0) {
                     mostrarBotones(data.categorias, 'categoria');
+                    // Req 1: Opción de finalizar (simplificada, aquí solo es escribir)
+                    // Las opciones de finalizar se agregan en los siguientes pasos.
                 }
                 
             } catch (error) {
@@ -117,6 +131,9 @@
                 agregarMensaje('bot', 'Tengo estas preguntas sobre ese tema:');
                 // Muestra los botones de preguntas
                 mostrarBotones(data.preguntas, 'pregunta', data.categoria);
+                
+                // Req 2: Añadir opciones de navegación
+                mostrarOpcionesNavegacion('lista_preguntas');
 
             } catch (error) {
                 agregarSpinner(false);
@@ -127,6 +144,8 @@
 
         async function manejarClickPregunta(categoria, pregunta) {
             limpiarBotones();
+            // Limpiamos también los botones de acción anteriores
+            limpiarBotonesDeAccion(); 
             agregarMensaje('user', pregunta);
             agregarSpinner(true);
 
@@ -144,9 +163,10 @@
                 }
                 const data = await response.json();
                 
-                // Muestra la respuesta final del FAQ
                 agregarMensaje('bot', data.respuesta);
-                // Aquí termina este flujo. Podríamos agregar un "¿Te sirvió?"
+                
+                // Req 3: Añadir opciones post-respuesta
+                mostrarOpcionesNavegacion('respuesta_faq', { categoria: categoria });
 
             } catch (error) {
                 agregarSpinner(false);
@@ -164,17 +184,29 @@
 
             agregarMensaje('user', consulta);
             userInput.value = '';
-            limpiarBotones(); // Limpia categorías/preguntas si las había
-            
+            limpiarBotones(); // Limpia categorías/preguntas
+            limpiarBotonesDeAccion(); // Limpia botones de acción
+
+            // Habilitar/Deshabilitar input
             userInput.disabled = true;
             sendButton.disabled = true;
+            
+            let tipoEnvio = 'sugerencias';
+            // Req 2b: Si el usuario eligió "Consulta detallada", forzamos el tipo 'ia'
+            if (window.forceIA === true) {
+                tipoEnvio = 'ia';
+                window.forceIA = false; // Reseteamos el flag
+            }
 
-            // Envia la consulta al endpoint /chat (el de sugerencias/IA)
-            await enviarConsultaChat(consulta, 'sugerencias');
+            // Envia la consulta al endpoint /chat
+            await enviarConsultaChat(consulta, tipoEnvio);
 
-            userInput.disabled = false;
-            sendButton.disabled = false;
-            userInput.focus();
+            // Reactivamos solo si la consulta no fue finalizada por la IA
+            if (!userInput.disabled) {
+                userInput.disabled = false;
+                sendButton.disabled = false;
+                userInput.focus();
+            }
         }
 
         async function enviarConsultaChat(consulta, tipo) {
@@ -197,7 +229,16 @@
                 if (data.tipo_respuesta === 'sugerencias') {
                     mostrarSugerencias(data.sugerencias, data.consulta_original);
                 } else if (data.tipo_respuesta === 'ia') {
-                    agregarMensaje('bot', data.respuesta, true); // true para que parsee newlines
+                    // Req 4: La IA responde y cierra la conversación
+                    agregarMensaje('bot', data.respuesta, true);
+                    agregarMensaje('bot', 'Esta consulta ha finalizado. ¡Gracias por usar el sistema! 👋');
+                    
+                    // Mostramos solo la opción de "nueva consulta"
+                    mostrarOpcionesNavegacion('respuesta_ia');
+                    
+                    // Deshabilitamos permanentemente el input para este flujo
+                    userInput.disabled = true;
+                    sendButton.disabled = true;
                 }
 
             } catch (error) {
@@ -214,11 +255,17 @@
                 const respuestaEscapada = btoa(unescape(encodeURIComponent(sug.respuesta)));
                 botonesHTML += `<div class='boton-opcion' onclick='manejarClickSugerencia(this, "${respuestaEscapada}")'>${sug.pregunta}</div>`;
             });
-
-            const consultaEscapada = btoa(unescape(encodeURIComponent(consultaOriginal)));
-            botonesHTML += `<div class='boton-opcion boton-ia' onclick='manejarClickIA(this, "${consultaEscapada}")'>Ninguna de las anteriores – Preguntar a la IA</div>`;
             
-            agregarBotones(botonesHTML);
+            agregarBotones(botonesHTML, 'botones-contenido');
+            
+            // Añadimos las opciones de navegación consistentes
+            let opcionesHTML = '';
+            const consultaEscapada = btoa(unescape(encodeURIComponent(consultaOriginal)));
+            opcionesHTML += `<div class='boton-opcion boton-accion ia' onclick='manejarClickIA(this, "${consultaEscapada}")'>b) Ninguna de las anteriores – Preguntar a la IA</div>`;
+            opcionesHTML += `<div class='boton-opcion boton-accion inicio' onclick='irAlInicio()'>a) Ir al inicio</div>`;
+            opcionesHTML += `<div class='boton-opcion boton-accion finalizar' onclick='finalizarConsulta()'>c) Finalizar consulta</div>`;
+
+            agregarBotones(opcionesHTML, 'botones-accion');
         }
 
         function manejarClickSugerencia(elemento, respuestaBase64) {
@@ -226,13 +273,18 @@
             const pregunta = elemento.innerText;
             
             limpiarBotones();
+            limpiarBotonesDeAccion();
             agregarMensaje('user', pregunta);
             agregarMensaje('bot', respuesta);
+            
+            // Req 3: Añadimos opciones post-respuesta (pero sin "volver atrás" ya que no hay categoría)
+            mostrarOpcionesNavegacion('respuesta_faq_sugerencia');
         }
 
         async function manejarClickIA(elemento, consultaBase64) {
             const consultaOriginal = decodeURIComponent(escape(atob(consultaBase64)));
             limpiarBotones();
+            limpiarBotonesDeAccion();
             agregarMensaje('user', `(Reformulo mi consulta): ${consultaOriginal}`);
             
             userInput.disabled = true;
@@ -240,9 +292,55 @@
 
             // Enviamos la consulta original a la IA
             await enviarConsultaChat(consultaOriginal, 'ia');
+        }
 
-            userInput.disabled = false;
-            sendButton.disabled = false;
+        // --- FUNCIONES DE NAVEGACIÓN (Nuevas y Modificadas) ---
+
+        function mostrarOpcionesNavegacion(estado, data = {}) {
+            let botonesHTML = '';
+            
+            if (estado === 'lista_preguntas') { // Req 2
+                botonesHTML += `<div class='boton-opcion boton-accion ia' onclick='prepararConsultaIA()'>b) Realizar consulta detallada</div>`;
+                botonesHTML += `<div class='boton-opcion boton-accion inicio' onclick='irAlInicio()'>a) Ir al inicio</div>`;
+                botonesHTML += `<div class='boton-opcion boton-accion finalizar' onclick='finalizarConsulta()'>c) Finalizar consulta</div>`;
+            } 
+            else if (estado === 'respuesta_faq') { // Req 3
+                botonesHTML += `<div class='boton-opcion boton-accion atras' onclick='manejarClickCategoria("${data.categoria}")'>a) Volver atrás</div>`;
+                botonesHTML += `<div class='boton-opcion boton-accion inicio' onclick='irAlInicio()'>b) Ir al inicio</div>`;
+                botonesHTML += `<div class='boton-opcion boton-accion finalizar' onclick='finalizarConsulta()'>c) Finalizar consulta</div>`;
+            }
+            else if (estado === 'respuesta_faq_sugerencia') { // Mi adición (Req 3 pero desde sugerencia)
+                botonesHTML += `<div class='boton-opcion boton-accion inicio' onclick='irAlInicio()'>Ir al inicio</div>`;
+                botonesHTML += `<div class='boton-opcion boton-accion finalizar' onclick='finalizarConsulta()'>Finalizar consulta</div>`;
+            }
+            else if (estado === 'respuesta_ia') { // Req 4
+                botonesHTML += `<div class='boton-opcion boton-accion inicio' onclick='irAlInicio()'>Comenzar una nueva consulta</div>`;
+            }
+            
+            agregarBotones(botonesHTML, 'botones-accion');
+        }
+        
+        // Req 2a, 3b
+        function irAlInicio() {
+            // La forma más limpia de reiniciar el estado del chat
+            location.reload(); 
+        }
+
+        // Req 2c, 3c
+        function finalizarConsulta() {
+            limpiarBotones();
+            limpiarBotonesDeAccion();
+            agregarMensaje('bot', 'Consulta finalizada. ¡Gracias por usar el sistema! 👋');
+            userInput.disabled = true;
+            sendButton.disabled = true;
+        }
+
+        // Req 2b
+        function prepararConsultaIA() {
+            limpiarBotones();
+            limpiarBotonesDeAccion();
+            agregarMensaje('bot', 'Entendido. Escribe tu consulta con el mayor grado de detalle posible. Cuando estés listo, presiona Enviar.');
+            window.forceIA = true; // Setea el flag
             userInput.focus();
         }
 
@@ -256,18 +354,20 @@
                 });
             } else if (tipo === 'pregunta') {
                 lista.forEach(item => {
-                    // Usamos comillas simples para el string de la pregunta
-                    botonesHTML += `<div class='boton-opcion' onclick='manejarClickPregunta("${dataExtra}", "${item}")'>${item}</div>`;
+                    // Escapamos comillas dentro de la pregunta por si acaso
+                    const itemEscapado = item.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    botonesHTML += `<div class='boton-opcion' onclick='manejarClickPregunta("${dataExtra}", "${itemEscapado}")'>${item}</div>`;
                 });
             }
-            agregarBotones(botonesHTML);
+            agregarBotones(botonesHTML, 'botones-contenido');
         }
 
-        function agregarBotones(html) {
+        function agregarBotones(html, tipoClase) {
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message bot';
             const contentDiv = document.createElement('div');
-            contentDiv.className = 'content botones-container';
+            // 'tipoClase' nos permite diferenciar contenedores de contenido vs acción
+            contentDiv.className = `content botones-container ${tipoClase || ''}`;
             contentDiv.innerHTML = html;
             msgDiv.appendChild(contentDiv);
             chatBox.appendChild(msgDiv);
@@ -275,7 +375,14 @@
         }
 
         function limpiarBotones() {
-            const contenedores = document.querySelectorAll('.botones-container');
+            // Limpia botones de contenido (categorías, preguntas, sugerencias)
+            const contenedores = document.querySelectorAll('.botones-container:not(.botones-accion)');
+            contenedores.forEach(c => c.closest('.message.bot').remove());
+        }
+        
+        function limpiarBotonesDeAccion() {
+            // Limpia solo los botones de acción (inicio, finalizar, etc.)
+            const contenedores = document.querySelectorAll('.botones-accion');
             contenedores.forEach(c => c.closest('.message.bot').remove());
         }
 
@@ -285,7 +392,6 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'content';
             
-            // ESTA ES LA MODIFICACIÓN ESTÉTICA (FIX #1)
             if (esHTML) {
                 contentDiv.innerHTML = contenido;
             } else {
