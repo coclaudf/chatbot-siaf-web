@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente SIAF</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f7f7f7; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #chat-container { width: 100%; max-width: 600px; height: 80vh; max-height: 700px; border: 1px solid #ddd; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+        #chat-header { background: #0056b3; color: white; padding: 15px 20px; font-weight: bold; border-bottom: 1px solid #004a99; }
+        #chat-box { flex-grow: 1; overflow-y: auto; padding: 20px; }
+        #input-area { display: flex; border-top: 1px solid #ddd; padding: 10px; background: #fcfcfc; }
+        #user-input { flex-grow: 1; border: 1px solid #ccc; border-radius: 20px; padding: 10px 15px; font-size: 14px; outline: none; }
+        #user-input:focus { border-color: #007bff; box-shadow: 0 0 0 2px rgba(0,123,255,0.2); }
+        #send-button { background: #007bff; color: white; border: none; padding: 10px 18px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #send-button:hover { background: #0056b3; }
+        .message { margin-bottom: 15px; display: flex; }
+        .message.user { justify-content: flex-end; }
+        .message.bot { justify-content: flex-start; }
+        .message .content { padding: 10px 15px; border-radius: 18px; max-width: 85%; line-height: 1.4; }
+        .message.bot .content { background: #eee; color: #333; }
+        .message.user .content { background: #007bff; color: white; }
+        .sugerencias-container { padding: 5px; background: #f9f9f9; border-radius: 10px; margin-top: 5px; }
+        .sugerencia { background: #fff; border: 1px solid #007bff; color: #007bff; padding: 8px 12px; border-radius: 15px; cursor: pointer; margin: 5px 3px; display: inline-block; font-size: 13px; transition: background 0.2s; }
+        .sugerencia:hover { background: #e6f2ff; }
+        .sugerencia-ia { background: #6c757d; border-color: #6c757d; color: white; }
+        .sugerencia-ia:hover { background: #5a6268; }
+        #spinner { text-align: center; padding: 10px; }
+        .dot-flashing { position: relative; width: 6px; height: 6px; border-radius: 5px; background-color: #999; color: #999; animation: dotFlashing 1s infinite linear alternate; animation-delay: .5s; }
+        .dot-flashing::before, .dot-flashing::after { content: ''; display: inline-block; position: absolute; top: 0; }
+        .dot-flashing::before { left: -10px; width: 6px; height: 6px; border-radius: 5px; background-color: #999; color: #999; animation: dotFlashing 1s infinite alternate; animation-delay: 0s; }
+        .dot-flashing::after { left: 10px; width: 6px; height: 6px; border-radius: 5px; background-color: #999; color: #999; animation: dotFlashing 1s infinite alternate; animation-delay: 1s; }
+        @keyframes dotFlashing { 0% { background-color: #999; } 50%, 100% { background-color: #eee; } }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-header">Asistente Virtual SIAF</div>
+        <div id="chat-box">
+            <div class="message bot">
+                <div class="content">¡Hola! 👋 Soy el asistente del SIAF. ¿En qué puedo ayudarte hoy?</div>
+            </div>
+        </div>
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="Escribí tu consulta...">
+            <button id="send-button">Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+
+        sendButton.addEventListener('click', manejarEnvioUsuario);
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                manejarEnvioUsuario();
+            }
+        });
+
+        async function manejarEnvioUsuario() {
+            const consulta = userInput.value;
+            if (!consulta.trim()) return;
+
+            agregarMensaje('user', consulta);
+            userInput.value = '';
+            
+            // Deshabilitar input mientras se procesa
+            userInput.disabled = true;
+            sendButton.disabled = true;
+
+            // Paso 1: Pedir sugerencias
+            await enviarAlBackend(consulta, 'sugerencias');
+
+            // Habilitar input
+            userInput.disabled = false;
+            sendButton.disabled = false;
+            userInput.focus();
+        }
+
+        async function enviarAlBackend(consulta, tipo) {
+            agregarSpinner(true);
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mensaje: consulta, tipo: tipo })
+                });
+
+                agregarSpinner(false);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    agregarMensaje('bot', `⚠️ Ocurrió un error: ${errorData.error || 'Por favor, intentá de nuevo.'}`);
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.tipo_respuesta === 'sugerencias') {
+                    // El backend nos dio sugerencias, las mostramos
+                    mostrarSugerencias(data.sugerencias, data.consulta_original);
+                } else if (data.tipo_respuesta === 'ia') {
+                    // El backend nos dio una respuesta de la IA
+                    // Usamos 'pre' para respetar saltos de línea y formato
+                    agregarMensaje('bot', `<pre>${data.respuesta}</pre>`, true);
+                }
+
+            } catch (error) {
+                agregarSpinner(false);
+                console.error('Error:', error);
+                agregarMensaje('bot', '⚠️ No pude conectarme al servidor. Revisa la conexión.');
+            }
+        }
+
+        function mostrarSugerencias(sugerencias, consultaOriginal) {
+            let sugerenciasHTML = '<div class="sugerencias-container">';
+            sugerenciasHTML += '<span>🔍 ¿Quizás tu consulta se relaciona con alguna de estas preguntas?</span><br>';
+            
+            sugerencias.forEach(sug => {
+                // Usamos btoa (Base64) para guardar la respuesta de forma segura en el HTML
+                const respuestaEscapada = btoa(unescape(encodeURIComponent(sug.respuesta)));
+                sugerenciasHTML += `<div class='sugerencia' onclick='manejarClickSugerencia(this, "${respuestaEscapada}")'>${sug.pregunta}</div>`;
+            });
+
+            // Opción C: "Ninguna de las anteriores"
+            // Guardamos la consulta original para enviarla a la IA
+            const consultaEscapada = btoa(unescape(encodeURIComponent(consultaOriginal)));
+            sugerenciasHTML += `<div class='sugerencia sugerencia-ia' onclick='manejarClickIA(this, "${consultaEscapada}")'>Ninguna de las anteriores – Preguntar a la IA</div>`;
+            sugerenciasHTML += '</div>';
+
+            agregarMensaje('bot', sugerenciasHTML, true); // true = es HTML
+        }
+
+        function manejarClickSugerencia(elemento, respuestaBase64) {
+            // El usuario eligió una sugerencia. Obtenemos la respuesta
+            const respuesta = decodeURIComponent(escape(atob(respuestaBase64)));
+            const pregunta = elemento.innerText;
+            
+            // Limpiamos las sugerencias
+            limpiarSugerencias();
+
+            // Mostramos la pregunta como si el usuario la hubiera escrito
+            agregarMensaje('user', pregunta);
+            
+            // Mostramos la respuesta pre-definida
+            agregarMensaje('bot', `<pre>${respuesta}</pre>`, true);
+        }
+
+        async function manejarClickIA(elemento, consultaBase64) {
+            // El usuario eligió la Opción C
+            const consultaOriginal = decodeURIComponent(escape(atob(consultaBase64)));
+            
+            // Limpiamos las sugerencias
+            limpiarSugerencias();
+
+            agregarMensaje('user', `(Reformulo mi consulta): ${consultaOriginal}`);
+            
+            // Deshabilitar input mientras se procesa
+            userInput.disabled = true;
+            sendButton.disabled = true;
+
+            // Ahora sí, enviamos la consulta original a la IA
+            await enviarAlBackend(consultaOriginal, 'ia');
+
+            // Habilitar input
+            userInput.disabled = false;
+            sendButton.disabled = false;
+            userInput.focus();
+        }
+
+        function limpiarSugerencias() {
+            const contenedores = document.querySelectorAll('.sugerencias-container');
+            // Removemos el mensaje 'bot' que contiene las sugerencias
+            contenedores.forEach(c => c.closest('.message.bot').remove());
+        }
+
+        function agregarMensaje(remitente, contenido, esHTML = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${remitente}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            
+            if (esHTML) {
+                // Limpiamos el HTML para evitar XSS básico (aunque aquí confiamos en nuestra IA)
+                // Para un producto real, usaríamos una librería como DOMPurify
+                contentDiv.innerHTML = contenido;
+                // Si es un <pre>, lo formateamos
+                if (contentDiv.querySelector('pre')) {
+                    contentDiv.style.whiteSpace = 'pre-wrap';
+                }
+            } else {
+                contentDiv.textContent = contenido;
+            }
+            
+            msgDiv.appendChild(contentDiv);
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll
+        }
+        
+        let spinnerElement = null;
+        function agregarSpinner(mostrar) {
+            if (mostrar) {
+                if (!spinnerElement) {
+                    spinnerElement = document.createElement('div');
+                    spinnerElement.className = 'message bot';
+                    spinnerElement.innerHTML = `<div class="content"><div id="spinner"><div class="dot-flashing"></div></div></div>`;
+                    chatBox.appendChild(spinnerElement);
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            } else {
+                if (spinnerElement) {
+                    spinnerElement.remove();
+                    spinnerElement = null;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

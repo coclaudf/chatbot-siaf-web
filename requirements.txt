@@ -1,0 +1,4 @@
+# requirements.txt
+Flask
+google-generativeai
+gunicorn
