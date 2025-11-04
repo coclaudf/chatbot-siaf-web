@@ -1,21 +1,18 @@
 # app.py
 import json
 import re
-import os  # <-- Importante para las variables de entorno
+import os
 import google.generativeai as genai
 from flask import Flask, request, jsonify, render_template
 
 # ------------------------------------------------------------
-# CONFIGURACIÓN
+# CONFIGURACIÓN (EXISTENTE)
 # ------------------------------------------------------------
-# Leemos la API Key desde las variables de entorno de Render
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# El archivo FAQ debe estar en la misma carpeta que app.py
 FAQ_ARCHIVO = "faq.json" 
 
 # ------------------------------------------------------------
-# LÓGICA "CEREBRO" (Tu Celda 3 - Lógica central intacta)
+# LÓGICA "CEREBRO" (EXISTENTE)
 # ------------------------------------------------------------
 
 # Configurar la API una sola vez al iniciar el servidor
@@ -36,13 +33,13 @@ def cargar_faq():
             return json.load(f)
     except FileNotFoundError:
         print(f"Error fatal: No se encontró el archivo '{FAQ_ARCHIVO}'")
-        return {} # Devuelve un dict vacío para evitar que todo falle
+        return {} 
     except json.JSONDecodeError:
         print(f"Error fatal: El archivo '{FAQ_ARCHIVO}' no es un JSON válido.")
         return {}
 
 def consultar_ia_gemini(pregunta_usuario, faq_dict):
-    """Envía la pregunta + FAQ como contexto a Gemini. (Función 100% original)"""
+    """(Función 100% original)"""
     contexto_faq = ""
     for categoria, preguntas in faq_dict.items():
         contexto_faq += f"\n## {categoria}\n"
@@ -70,7 +67,7 @@ def consultar_ia_gemini(pregunta_usuario, faq_dict):
         return f"⚠️ No fue posible obtener una respuesta. Error: {str(e)}"
 
 def encontrar_preguntas_similares(faq, consulta_usuario, umbral=1, max_sugerencias=5):
-    """Encuentra preguntas similares. (Lógica original, salida modificada para la API)"""
+    """(Función 100% original en su LÓGICA)"""
     palabras_usuario = set(re.findall(r'\w+', consulta_usuario.lower()))
     coincidencias = []
     for categoria, preguntas in faq.items():
@@ -78,12 +75,10 @@ def encontrar_preguntas_similares(faq, consulta_usuario, umbral=1, max_sugerenci
             palabras_pregunta = set(re.findall(r'\w+', pregunta.lower()))
             comunes = len(palabras_usuario & palabras_pregunta)
             if comunes >= umbral:
-                # Guardamos (comunes, categoria, pregunta, respuesta)
                 coincidencias.append((comunes, categoria, pregunta, respuesta))
     
     coincidencias.sort(key=lambda x: x[0], reverse=True)
     
-    # Devolvemos un formato útil para la API: una lista de diccionarios
     sugerencias_formateadas = []
     for _, cat, preg, resp in coincidencias[:max_sugerencias]:
         sugerencias_formateadas.append({"categoria": cat, "pregunta": preg, "respuesta": resp})
@@ -91,7 +86,7 @@ def encontrar_preguntas_similares(faq, consulta_usuario, umbral=1, max_sugerenci
     return sugerencias_formateadas
 
 # ------------------------------------------------------------
-# LÓGICA DE SERVIDOR WEB (El reemplazo de 'main')
+# LÓGICA DE SERVIDOR WEB (EXISTENTE + NUEVAS RUTAS)
 # ------------------------------------------------------------
 
 app = Flask(__name__)
@@ -102,18 +97,16 @@ FAQ_GLOBAL = cargar_faq()
 @app.route("/")
 def index():
     """Sirve la página principal del chat (el archivo index.html)"""
-    # Flask busca automáticamente en la carpeta 'templates'
     return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
 def manejar_chat():
     """
-    Este es el "endpoint" de la API. Recibe un JSON con el mensaje del usuario
-    y decide qué hacer, imitando tu lógica de 'procesar_sugerencias'.
+    Esta ruta (EXISTENTE) se usa para la BÚSQUEDA LIBRE (sugerencias) y
+    la escalada a la IA.
     """
     if not FAQ_GLOBAL:
         return jsonify({"error": "El servidor no pudo cargar el archivo FAQ."}), 500
-    
     if not GEMINI_API_KEY:
          return jsonify({"error": "El servidor no tiene configurada la API Key."}), 500
 
@@ -125,30 +118,81 @@ def manejar_chat():
         return jsonify({"error": "No se recibió ningún mensaje."}), 400
 
     if tipo == "sugerencias":
-        # 1. Imitamos 'procesar_sugerencias': Buscamos similares
         sugerencias = encontrar_preguntas_similares(FAQ_GLOBAL, consulta)
-        
         if sugerencias:
-            # Enviamos las sugerencias al frontend
             return jsonify({
                 "tipo_respuesta": "sugerencias",
                 "sugerencias": sugerencias,
-                "consulta_original": consulta # Devolvemos la consulta por si la necesitamos
+                "consulta_original": consulta
             })
         else:
-            # Si no hay sugerencias, pasamos directo a la IA
-            tipo = "ia" 
+            tipo = "ia" # Si no hay sugerencias, pasa directo a la IA
             
     if tipo == "ia":
-        # 2. Imitamos la Opción 'C' o 'derivar_con_sugerencias'
-        print(f"Enviando consulta a Gemini: {consulta}") # Log para el servidor
+        print(f"Enviando consulta a Gemini: {consulta}") 
         respuesta_ia = consultar_ia_gemini(consulta, FAQ_GLOBAL)
         return jsonify({
             "tipo_respuesta": "ia",
             "respuesta": respuesta_ia
         })
 
-# Esto permite que Flask se inicie (necesario para Render)
+# ------------------------------------------------------------
+# ¡NUEVAS RUTAS PARA EL FLUJO DE CATEGORÍAS!
+# ------------------------------------------------------------
+
+@app.route("/get_initial_data", methods=["GET"])
+def get_initial_data():
+    """
+    Envía el saludo inicial y la lista de categorías principales
+    para que el frontend las muestre como botones.
+    """
+    if not FAQ_GLOBAL:
+        return jsonify({"error": "El servidor no pudo cargar el archivo FAQ."}), 500
+        
+    categorias = list(FAQ_GLOBAL.keys())
+    return jsonify({
+        "saludo": "¡Hola! 👋 Soy el asistente del SIAF. Puedes seleccionar una categoría o escribirme tu consulta directamente.",
+        "categorias": categorias
+    })
+
+@app.route("/get_questions", methods=["POST"])
+def get_questions():
+    """
+    Dado un nombre de categoría, devuelve la lista de preguntas
+    para esa categoría.
+    """
+    datos = request.json
+    categoria_nombre = datos.get("categoria")
+    
+    if not categoria_nombre or categoria_nombre not in FAQ_GLOBAL:
+        return jsonify({"error": "Categoría no válida."}), 400
+        
+    preguntas = list(FAQ_GLOBAL[categoria_nombre].keys())
+    return jsonify({
+        "categoria": categoria_nombre,
+        "preguntas": preguntas
+    })
+
+@app.route("/get_answer", methods=["POST"])
+def get_answer():
+    """
+    Dada una categoría y una pregunta, devuelve la respuesta final.
+    """
+    datos = request.json
+    categoria = datos.get("categoria")
+    pregunta = datos.get("pregunta")
+    
+    if not categoria or not pregunta or categoria not in FAQ_GLOBAL or pregunta not in FAQ_GLOBAL[categoria]:
+        return jsonify({"error": "Pregunta o categoría no válida."}), 400
+        
+    respuesta = FAQ_GLOBAL[categoria][pregunta]
+    return jsonify({
+        "respuesta": respuesta
+    })
+
+# ------------------------------------------------------------
+
+# Esto permite que Flask se inicie
 if __name__ == "__main__":
-    # El puerto lo asignará Render automáticamente
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
